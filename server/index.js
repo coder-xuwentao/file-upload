@@ -12,14 +12,31 @@ server.on('request', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', '*')
 
+    if (req.url === '/upload/hash') {
+        const { fileName, fileHash } = await resolvePost(req)
+        const isExist = () => {
+            const extension = getExtension(fileName)
+            return fse.existsSync(path.resolve(UPLOAD_DIR, `${fileHash}${extension}`))
+        }
+        
+        if (isExist()) {
+            res.end(JSON.stringify({
+                shouldUpload: false
+            }))
+            return
+        } else {
+            res.end(JSON.stringify({
+                shouldUpload: true
+            }))
+        }
+    }
+
     if (req.url === '/upload') { //前端访问的地址正确
         const multipart = new multiparty.Form() // 解析FormData对象
         multipart.parse(req, async (err, fields, files) => {
             if (err) { //解析失败
                 return
             }
-            // console.log('fields=', fields);
-            // console.log('files=', files);
 
             const [file] = files.file
             const [fileName] = fields.fileName
@@ -32,21 +49,23 @@ server.on('request', async (req, res) => {
 
             // 把切片移动进chunkDir
             await fse.move(file.path, `${chunkDir}/${chunkName}`)
-            res.end(JSON.stringify({ //向前端输出
+            res.end(JSON.stringify({
                 code: 0,
                 message: '切片上传成功'
             }))
         })
     }
 
-    if (req.url === '/merge') { // 该去合并切片了
+    if (req.url === '/upload/merge') { // 该去合并切片了
         const data = await resolvePost(req)
         const {
             fileName,
+            fileHash,
             size
         } = data
-        const filePath = path.resolve(UPLOAD_DIR, fileName)//获取切片路径
-        await mergeFileChunk(filePath, fileName, size)
+        const extension = getExtension(fileName)
+        const filePath = path.resolve(UPLOAD_DIR, `${fileHash}${extension}`)//获取切片路径
+        await mergeFileChunk({ filePath, fileName, size })
         res.end(JSON.stringify({
             code: 0,
             message: '文件合并成功'
@@ -54,7 +73,7 @@ server.on('request', async (req, res) => {
     }
 
     // 合并
-    async function mergeFileChunk(filePath, fileName, size) {
+    async function mergeFileChunk({ filePath, fileName, size }) {
         const chunkDir = path.resolve(UPLOAD_DIR, `${fileName}-chunks`)
 
         let chunkPaths = await fse.readdir(chunkDir)
@@ -79,10 +98,10 @@ server.on('request', async (req, res) => {
             // 创建可读流，读取所有切片
             const readStream = fse.createReadStream(path)
             readStream.on('end', () => {
-                fse.unlinkSync(path)// 读取完毕后，删除已经读取过的切片路径
+                fse.unlinkSync(path) // 读取完毕后，删除已经读取过的切片路径
                 resolve()
             })
-            readStream.pipe(writeStream)//将可读流流入可写流
+            readStream.pipe(writeStream) //将可读流流入可写流
         })
     }
 
@@ -98,6 +117,10 @@ server.on('request', async (req, res) => {
                 resolve(JSON.parse(chunk))//将字符串转为JSON对象
             })
         })
+    }
+
+    function getExtension(fileName) {
+        return fileName.slice(fileName.lastIndexOf("."), fileName.length)
     }
 })
 

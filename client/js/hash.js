@@ -4,32 +4,34 @@
 self.importScripts("../modules/spark-md5.min.js");
 
 // 生成文件 hash
-self.onmessage = e => {
+self.onmessage = async function calculateHash (e) {
     const { fileChunkList } = e.data;
-    const spark = new self.SparkMD5.ArrayBuffer();
+    const fileSpark = new self.SparkMD5.ArrayBuffer();
     let percentage = 0;
-    let count = 0;
-    const loadNext = index => {
-        const reader = new FileReader();
-        reader.readAsArrayBuffer(fileChunkList[index].file);
-        reader.onload = e => {
-            count++;
-            spark.append(e.target.result);
-            if (count === fileChunkList.length) {
-                self.postMessage({
-                    percentage: 100,
-                    hash: spark.end()
-                });
-                self.close();
-            } else {
+    const calHashWith = fileChunk => {
+        return new Promise(resolve => {
+            const reader = new FileReader();
+            reader.readAsArrayBuffer(fileChunk.file);
+            reader.onload = e => {
+                fileSpark.append(e.target.result);
                 percentage += 100 / fileChunkList.length;
-                self.postMessage({
-                    percentage
-                });
-                // calculate recursively
-                loadNext(count);
-            }
-        };
-    };
-    loadNext(0);
+                resolve(percentage)
+            };
+        });
+    }
+
+
+    for (let fileChunk of fileChunkList) {
+        await calHashWith(fileChunk)
+        self.postMessage({
+            percentage,
+            chunkHash: self.SparkMD5.ArrayBuffer.hash(fileChunk),
+        });
+    }
+    self.postMessage({
+        percentage: 100,
+        fileHash: fileSpark.end()
+    });
+    self.close();
+
 };
