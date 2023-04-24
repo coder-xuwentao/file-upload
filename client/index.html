@@ -1,16 +1,17 @@
 <input type="file" id="input">
+<br />
+<label for="hash-progress-bar">制作hash进度条：</label>
+<progress id="hash-progress-bar" value="0" max="0"></progress>
+
+<hr />
 <button id="upload" disabled>上传</button>
-<p>
-    <label for="hash-progress-bar">制作hash进度条：</label>
-    <progress id="hash-progress-bar" value="0" max="0"></progress>
-</p>
-<p>
-    <label for="upload-progress-bar">上传进度条：</label>
-    <progress id="upload-progress-bar" value="0" max="0"></progress>
-</p>
-<p>
-    <button id="reset">清空</button>
-</p>
+<label for="upload-progress-bar">上传进度条：</label>
+<progress id="upload-progress-bar" value="0" max="0"></progress>
+<hr />
+<button id="pause">暂停</button>
+<button id="continue">继续</button>
+<hr />
+<button id="reset">清空</button>
 
 
 <script src="./modules/axios.min.js"></script>
@@ -18,18 +19,22 @@
 <script>
     // 变量
     const SLICE_SIZE = 2 * 1024 * 1024 // 切片大小
+    let pauseController = new AbortController()
     let data = {
         file: {}, // 上传文件
         chunkList: [], // 切片列表
-        chunkHashs: [], 
-        fileHash: ''
+        chunkHashs: [],
+        fileHash: '',
     }
+    window.data = data // 方便调试
 
     let inputDom = document.getElementById('input')
     let uploadDom = document.getElementById('upload')
     let hashProgressDom = document.getElementById('hash-progress-bar')
     let uploadProgressDom = document.getElementById('upload-progress-bar')
     let resetDom = document.getElementById('reset')
+    let pauseDom = document.getElementById('pause')
+    let continueDom = document.getElementById('continue')
 
     const axiosRequest = axios.create({
         baseURL: 'http://localhost:3000/',
@@ -43,8 +48,13 @@
     uploadDom.addEventListener('click', handleClickUpload)
     // reset
     resetDom.addEventListener('click', handleReset)
+    // 暂停
+    pauseDom.addEventListener('click', handlePause)
+    // 继续上传，按普通上传处理，防止数据丢失
+    continueDom.addEventListener('click', handleClickUpload)
 
-    async function handleFileChange (e) {
+    async function handleFileChange(e) {
+        // 创建切片
         function createChunk(file, size = SLICE_SIZE) {
             const chunkList = []
             let cur = 0
@@ -68,10 +78,11 @@
                     // console.log('进度', percentage,  fileHash, chunkHash)
                     // console.log(percentage)
                     onProgress(percentage)
-                    result.chunkHashs.push(chunkHash)
                     if (fileHash) {
                         result.fileHash = fileHash
                         resolve(result);
+                    } else {
+                        result.chunkHashs.push(chunkHash)
                     }
                 }
             })
@@ -84,7 +95,7 @@
 
         hashProgressDom.max = 100
         const hashResult = await calculateHash({
-            fileChunkList: data.chunkList, 
+            fileChunkList: data.chunkList,
             onProgress: (percentage) => hashProgressDom.value = percentage,
         })
         data.fileHash = hashResult.fileHash
@@ -92,7 +103,7 @@
         uploadDom.disabled = false
     }
 
-    async function handleClickUpload () {
+    async function handleClickUpload() {
         async function uploadFile(list) {
             // 通知后端去做切片合并
             function noticeMerge(fileName, fileHash) {
@@ -106,10 +117,10 @@
                     }),
                 })
             }
-            const requestList = list.map(({ file, fileName, index, chunkName }) => {
+            const requestList = list.map(({ file, fileName, fileHash, index, chunkName }) => {
                 const formData = new FormData() // 创建表单类型数据
                 formData.append('file', file)//该文件
-                formData.append('fileName', fileName)//文件名
+                formData.append('fileHash', fileHash)//文件名
                 formData.append('chunkName', chunkName)//切片名
                 return { formData, index }
             })
@@ -119,21 +130,23 @@
                             method: 'post',
                             url: 'upload',//请求接口，要与后端一一一对应
                             data: formData,
+                            signal: pauseController.signal,
                         })
                         //显示每个切片上传进度
                         uploadProgressDom.value += SLICE_SIZE
                         resolve()
-                    }) 
+                    })
                 })
             await Promise.all(requestList)//保证所有的切片都已经传输完毕
 
             //当所有切片上传成功之后，通知后端合并
             noticeMerge(data.file.name, data.fileHash)
+            alert('上传成功')
         }
-        async function getShouldUpload () {
+        async function getShouldUpload() {
             const res = await axiosRequest({
                 method: 'post',
-                url: 'upload/hash',//请求接口，要与后端一一一对应
+                url: 'upload/verify', //请求接口，要与后端一一一对应
                 data: JSON.stringify({
                     fileName: data.file.name,
                     fileHash: data.fileHash,
@@ -153,23 +166,31 @@
             file,
             size: file.size,
             percent: 0,
-            chunkName: `${data.file.name}-${index}`,
-            fileName: data.file.name,
+            chunkName: `${data.chunkHashs[index]}-${index}`,
+            fileName: file.name,
+            fileHash: data.fileHash,
             index
         }))
         //发请求，调用函数
         await uploadFile(uploadList)
     }
-    
-    function handleReset () {
+
+    function handlePause() {
+        continueDom.hidden = false
+        pauseController.abort()
+        pauseController = new AbortController() // reset pauseController
+    }
+
+    function handleReset() {
         data = {
             file: {},
             chunkList: [],
-            chunkHashs: [], 
+            chunkHashs: [],
             fileHash: ''
         }
         inputDom.value = ''
         hashProgressDom.value = 0
         uploadProgressDom.value = 0
+        continueDom.hidden = true
     }
 </script>

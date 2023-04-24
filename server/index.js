@@ -12,14 +12,9 @@ server.on('request', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', '*')
 
-    if (req.url === '/upload/hash') {
+    if (req.url === '/upload/verify') {
         const { fileName, fileHash } = await resolvePost(req)
-        const isExist = () => {
-            const extension = getExtension(fileName)
-            return fse.existsSync(path.resolve(UPLOAD_DIR, `${fileHash}${extension}`))
-        }
-        
-        if (isExist()) {
+        if (isExistFile(UPLOAD_DIR, `${fileHash}${getExtension(fileName)}`)) {
             res.end(JSON.stringify({
                 shouldUpload: false
             }))
@@ -39,19 +34,29 @@ server.on('request', async (req, res) => {
             }
 
             const [file] = files.file
-            const [fileName] = fields.fileName
+            const [fileHash] = fields.fileHash
             const [chunkName] = fields.chunkName
 
-            const chunkDir = path.resolve(UPLOAD_DIR, `${fileName}-chunks`)//在chunks文件夹创建一个新的文件夹，存放接收到的所有切片
+            const chunkDir = path.resolve(UPLOAD_DIR, `${fileHash}-chunks`)//在chunks文件夹创建一个新的文件夹，存放接收到的所有切片
             if (!fse.existsSync(chunkDir)) { //文件夹不存在，新建该文件夹
                 await fse.mkdirs(chunkDir)
+            }
+            if (isExistFile(chunkDir, chunkName)) {
+                res.end(JSON.stringify({
+                    code: 0,
+                    message: '切片上传成功',
+                    isExist: true,
+                }))
+                return
             }
 
             // 把切片移动进chunkDir
             await fse.move(file.path, `${chunkDir}/${chunkName}`)
+            await sleep(2000)
             res.end(JSON.stringify({
                 code: 0,
-                message: '切片上传成功'
+                message: '切片上传成功',
+                isExist: false,
             }))
         })
     }
@@ -64,8 +69,8 @@ server.on('request', async (req, res) => {
             size
         } = data
         const extension = getExtension(fileName)
-        const filePath = path.resolve(UPLOAD_DIR, `${fileHash}${extension}`)//获取切片路径
-        await mergeFileChunk({ filePath, fileName, size })
+        const destinationPath = path.resolve(UPLOAD_DIR, `${fileHash}${extension}`)//获取切片路径
+        await mergeFileChunk({ destinationPath, fileHash, size })
         res.end(JSON.stringify({
             code: 0,
             message: '文件合并成功'
@@ -73,8 +78,8 @@ server.on('request', async (req, res) => {
     }
 
     // 合并
-    async function mergeFileChunk({ filePath, fileName, size }) {
-        const chunkDir = path.resolve(UPLOAD_DIR, `${fileName}-chunks`)
+    async function mergeFileChunk({ destinationPath, fileHash, size }) {
+        const chunkDir = path.resolve(UPLOAD_DIR, `${fileHash}-chunks`)
 
         let chunkPaths = await fse.readdir(chunkDir)
         chunkPaths.sort((a, b) => a.split('-')[1] - b.split('-')[1])
@@ -83,7 +88,7 @@ server.on('request', async (req, res) => {
             return pipeStream(
                 path.resolve(chunkDir, chunkPath),
                 // 在指定的位置创建可写流
-                fse.createWriteStream(filePath, {
+                fse.createWriteStream(destinationPath, {
                     start: index * size,
                     end: (index + 1) * size
                 })
@@ -121,6 +126,14 @@ server.on('request', async (req, res) => {
 
     function getExtension(fileName) {
         return fileName.slice(fileName.lastIndexOf("."), fileName.length)
+    }
+
+    function isExistFile(filePath, fileName) {
+        return fse.existsSync(path.resolve(filePath, fileName))
+    }
+
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms))
     }
 })
 

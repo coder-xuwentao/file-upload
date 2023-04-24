@@ -15,18 +15,18 @@ self.onmessage = async function calculateHash (e) {
             reader.onload = e => {
                 fileSpark.append(e.target.result);
                 percentage += 100 / fileChunkList.length;
-                resolve(percentage)
+                resolve({
+                    percentage,
+                    chunkHash: self.SparkMD5.ArrayBuffer.hash(e.target.result),
+                })
             };
         });
     }
 
 
     for (let fileChunk of fileChunkList) {
-        await calHashWith(fileChunk)
-        self.postMessage({
-            percentage,
-            chunkHash: self.SparkMD5.ArrayBuffer.hash(fileChunk),
-        });
+        const result = await calHashWith(fileChunk)
+        self.postMessage(result);
     }
     self.postMessage({
         percentage: 100,
