@@ -1,5 +1,3 @@
-// /public/hash.js
-
 // 导入脚本
 self.importScripts("../modules/spark-md5.min.js");
 

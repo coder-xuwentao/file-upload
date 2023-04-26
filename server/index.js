@@ -66,11 +66,11 @@ server.on('request', async (req, res) => {
         const {
             fileName,
             fileHash,
-            size
+            sliceSize
         } = data
         const extension = getExtension(fileName)
         const destinationPath = path.resolve(UPLOAD_DIR, `${fileHash}${extension}`)//获取切片路径
-        await mergeFileChunk({ destinationPath, fileHash, size })
+        await mergeFileChunk({ destinationPath, fileHash, sliceSize })
         res.end(JSON.stringify({
             code: 0,
             message: '文件合并成功'
@@ -78,7 +78,7 @@ server.on('request', async (req, res) => {
     }
 
     // 合并
-    async function mergeFileChunk({ destinationPath, fileHash, size }) {
+    async function mergeFileChunk({ destinationPath, fileHash, sliceSize }) {
         const chunkDir = path.resolve(UPLOAD_DIR, `${fileHash}-chunks`)
 
         let chunkPaths = await fse.readdir(chunkDir)
@@ -89,8 +89,8 @@ server.on('request', async (req, res) => {
                 path.resolve(chunkDir, chunkPath),
                 // 在指定的位置创建可写流
                 fse.createWriteStream(destinationPath, {
-                    start: index * size,
-                    end: (index + 1) * size
+                    start: index * sliceSize,
+                    end: (index + 1) * sliceSize
                 })
             )
         })
