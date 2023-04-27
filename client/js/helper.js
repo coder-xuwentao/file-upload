@@ -1,4 +1,4 @@
-// 生成文件 hash（web-worker）
+// 生成文件和chunk的 hash（web-worker）
 export function calculateHash({ fileChunkList, onProgress }) {
     return new Promise(resolve => {
         const result = { chunkHashs: [], fileHash: '' }
@@ -7,9 +7,7 @@ export function calculateHash({ fileChunkList, onProgress }) {
         worker.postMessage({ fileChunkList });
         worker.onmessage = e => {
             const { percentage, fileHash, chunkHash } = e.data;
-            // console.log('进度', percentage,  fileHash, chunkHash)
-            // console.log(percentage)
-            onProgress(percentage)
+            onProgress?.(percentage)
             if (fileHash) {
                 result.fileHash = fileHash
                 resolve(result);
@@ -22,14 +20,65 @@ export function calculateHash({ fileChunkList, onProgress }) {
 
 
 // 创建切片
-export function createChunk(file, size) {
+export function createChunk(file, sliceSize) {
     const chunkList = []
     let cur = 0
     while (cur < file.size) {
         chunkList.push({
-            file: file.slice(cur, cur + size)
+            file: file.slice(cur, cur + sliceSize)
         })
-        cur += size
+        cur += sliceSize
     }
     return chunkList
+}
+
+export function getIndexedDBManagerForFileUpload() {
+    const DATA_BASE_NAME = 'UploadFileDB'
+    const STORE_NAME = 'UploadFile'
+    const UNIQ_KEY = 'key'
+    const UNIQ_VALUE = '1' // 只存一条数据
+
+    let dataBase = null
+    function getDataBase() {
+        if (dataBase) {
+            return dataBase
+        }
+        return new Promise(resolve => {
+            const request = indexedDB.open(DATA_BASE_NAME, Date.now())
+            request.onupgradeneeded = e => {
+                const db = e.target.result
+                const transaction = e.target.transaction
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME, { keyPath: UNIQ_KEY })
+                }
+                dataBase = db
+                transaction.oncomplete = () => resolve(db)
+            }
+            request.onsuccess = e => {
+                const db = e.target.result
+                resolve(db)
+            }
+        })
+    }
+    return {
+        async setDataInDB(data) {
+            const dataBase = await getDataBase()
+            return new Promise(resolve => {
+                const request = dataBase.transaction(STORE_NAME, 'readwrite')
+                    .objectStore(STORE_NAME)
+                    .put({...data, [UNIQ_KEY]: UNIQ_VALUE})
+                request.onsuccess = resolve('success')
+            })
+        },
+        async getDataInDB() {
+            const dataBase = await getDataBase()
+            return new Promise(resolve => {
+                const request = dataBase.transaction(STORE_NAME, 'readwrite')
+                    .objectStore(STORE_NAME)
+                    .get(UNIQ_VALUE)
+                request.onsuccess = () => resolve(request.result)
+            })
+        }
+    }
+
 }

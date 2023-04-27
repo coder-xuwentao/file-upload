@@ -11,6 +11,29 @@ server.on('request', async (req, res) => {
     // 处理跨域问题，允许所有的请求头和请求源
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', '*')
+    if (req.url === '/upload/can_continue') {
+        const { fileName, fileHash, chunkHashs } = await resolvePost(req)
+        if (isExistFile(UPLOAD_DIR, `${fileHash}${getExtension(fileName)}`)) {
+            res.end(JSON.stringify({ canContinue: false }))
+            return
+        }
+        const chunkDir = getChunkDir(fileHash)
+        const chunkPaths = await fse.readdir(chunkDir)
+        const existHashs = chunkPaths.map(chunkPath => chunkPath.split('-')[0])
+        const isExistHashMatch = existHashs.every(existHash => chunkHashs.includes(existHash))
+        if (!isExistHashMatch) { // 本地存在不匹配的chunks
+            // 删除本地chunks
+            chunkPaths.forEach(chunkPath => fse.unlinkSync(path.resolve(chunkDir, chunkPath)))
+            res.end(JSON.stringify({ canContinue: false }))
+            return
+        }
+        if (existHashs.length > 0) {
+            res.end(JSON.stringify({ canContinue: true, existChunkLength: existHashs.length}))
+            return
+        }
+        res.end(JSON.stringify({ canContinue: false }))
+        return
+    }
 
     if (req.url === '/upload/verify') {
         const { fileName, fileHash } = await resolvePost(req)
@@ -37,7 +60,7 @@ server.on('request', async (req, res) => {
             const [fileHash] = fields.fileHash
             const [chunkName] = fields.chunkName
 
-            const chunkDir = path.resolve(UPLOAD_DIR, `${fileHash}-chunks`)//在chunks文件夹创建一个新的文件夹，存放接收到的所有切片
+            const chunkDir = getChunkDir(fileHash) //在chunks文件夹创建一个新的文件夹，存放接收到的所有切片
             if (!fse.existsSync(chunkDir)) { //文件夹不存在，新建该文件夹
                 await fse.mkdirs(chunkDir)
             }
@@ -79,7 +102,7 @@ server.on('request', async (req, res) => {
 
     // 合并
     async function mergeFileChunk({ destinationPath, fileHash, sliceSize }) {
-        const chunkDir = path.resolve(UPLOAD_DIR, `${fileHash}-chunks`)
+        const chunkDir = getChunkDir(fileHash)
 
         let chunkPaths = await fse.readdir(chunkDir)
         chunkPaths.sort((a, b) => a.split('-')[1] - b.split('-')[1])
@@ -134,6 +157,10 @@ server.on('request', async (req, res) => {
 
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms))
+    }
+
+    function getChunkDir(fileHash) {
+        return path.resolve(UPLOAD_DIR, `${fileHash}-chunks`)
     }
 })
 

@@ -39,3 +39,11 @@ export function uploadData(formData, signal) {
         signal,
     })
 }
+
+export function getCanContinue(data) {
+    return axiosRequest({
+        method: 'post',
+        url: 'upload/can_continue',//请求接口，要与后端一一一对应
+        data: JSON.stringify(data),
+    })
+}
