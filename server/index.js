@@ -13,22 +13,28 @@ server.on('request', async (req, res) => {
     res.setHeader('Access-Control-Allow-Headers', '*')
     if (req.url === '/upload/can_continue') {
         const { fileName, fileHash, chunkHashs } = await resolvePost(req)
-        if (isExistFile(UPLOAD_DIR, `${fileHash}${getExtension(fileName)}`)) {
+        if (isExistFile(UPLOAD_DIR, `${fileHash}${getExtension(fileName)}`)) { // 已存在file
             res.end(JSON.stringify({ canContinue: false }))
             return
         }
         const chunkDir = getChunkDir(fileHash)
+        if (!isExistFile(chunkDir)) { // 不存在chunk文件夹
+            res.end(JSON.stringify({ canContinue: false }))
+            return
+        }
         const chunkPaths = await fse.readdir(chunkDir)
         const existHashs = chunkPaths.map(chunkPath => chunkPath.split('-')[0])
         const isExistHashMatch = existHashs.every(existHash => chunkHashs.includes(existHash))
         if (!isExistHashMatch) { // 本地存在不匹配的chunks
-            // 删除本地chunks
             chunkPaths.forEach(chunkPath => fse.unlinkSync(path.resolve(chunkDir, chunkPath)))
             res.end(JSON.stringify({ canContinue: false }))
             return
         }
-        if (existHashs.length > 0) {
-            res.end(JSON.stringify({ canContinue: true, existChunkLength: existHashs.length}))
+        if (chunkPaths.length > 0) { // 服务端存在部分chunk文件，可续传
+            res.end(JSON.stringify({
+                canContinue: true,
+                uploadedHashs: existHashs,
+            }))
             return
         }
         res.end(JSON.stringify({ canContinue: false }))
@@ -151,7 +157,7 @@ server.on('request', async (req, res) => {
         return fileName.slice(fileName.lastIndexOf("."), fileName.length)
     }
 
-    function isExistFile(filePath, fileName) {
+    function isExistFile(filePath, fileName = '') {
         return fse.existsSync(path.resolve(filePath, fileName))
     }
 

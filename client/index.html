@@ -1,8 +1,9 @@
 <input type="file" id="input">
 <br />
 <label for="hash-progress-bar">制作hash进度条：</label>
-<progress id="hash-progress-bar" value="0" max="0"></progress>
-
+<progress id="hash-progress-bar" value="0" max="100"></progress>
+<hr />
+可上传文件: <span id="file-title"></span>
 <hr />
 <button id="upload" disabled>上传</button>
 <label for="upload-progress-bar">上传进度条：</label>
@@ -18,7 +19,7 @@
 <script src="./modules/spark-md5.min.js"></script>
 <script type="module">
     import { calculateHash, createChunk, getIndexedDBManagerForFileUpload } from './js/helper.js'
-    import { noticeMerge, getShouldUpload, uploadData, getCanContinue } from './js/fetch-api.js'
+    import { noticeMerge, getShouldUpload, uploadChunks, getCanContinue } from './js/fetch-api.js'
 
     // 变量
     const SLICE_SIZE = 2 * 1024 * 1024 // 切片大小
@@ -28,14 +29,19 @@
         chunkList: [], // 切片列表
         chunkHashs: [],
         fileHash: '',
+        hashToChunkMap: {},
+        uploadedHashs: []
     }
     function updateData(newData) {
         data = { ...data, ...newData }
+        window.data = data // 方便调试
+        if (newData.file) {
+            fileTitle.innerText = newData.file.name
+        }
     }
     const { setDataInDB, getDataInDB } = getIndexedDBManagerForFileUpload()
     let inputDom, uploadBtnDom, hashProgressDom, uploadProgressDom,
-        resetDom, pauseDom, continueBtnDom, continueTip;
-    window.data = data // 方便调试
+        resetDom, pauseDom, continueBtnDom, fileTitle;
     registerEventHandler() // 绑定事件监听器
     initDataFromDB()
 
@@ -47,7 +53,7 @@
         resetDom = document.getElementById('reset')
         pauseDom = document.getElementById('pause')
         continueBtnDom = document.getElementById('continue')
-        continueTip = document.getElementById('continue')
+        fileTitle = document.getElementById('file-title')
 
         // 读取文件
         inputDom.addEventListener('change', handleFileChange)
@@ -58,7 +64,7 @@
         // 暂停
         pauseDom.addEventListener('click', handlePause)
         // 继续上传，按普通上传处理，防止数据丢失
-        continueBtnDom.addEventListener('click', handleClickUpload)
+        continueBtnDom.addEventListener('click', () => continueUpdate())
     }
 
     async function initDataFromDB() {
@@ -66,57 +72,67 @@
         if (!dataInDB) {
             return
         }
+        delete dataInDB.key
         updateData(dataInDB)
         continueBtnDom.hidden = false
+        uploadBtnDom.disabled = false
         const { file, fileHash, chunkHashs } = dataInDB
         const result = await getCanContinue({
             fileName: file.name, fileHash, chunkHashs
         })
-        if (result.data.canContinue && confirm('继续上传？')) {
-            handleClickUpload()
+        const { canContinue, uploadedHashs } = result.data
+        if (canContinue && confirm('继续上传？')) {
+            updateData({ uploadedHashs })
+            continueUpdate()
         }
     }
 
-    async function handleFileChange(e) {
-        const file = e.target.files[0]
-        updateData({ file, chunkList: createChunk(file, SLICE_SIZE) })
+    async function continueUpdate() {
+        const { file, hashToChunkMap, chunkHashs, fileHash, uploadedHashs } = data
         uploadProgressDom.max = file.size
-        hashProgressDom.max = 100
+        uploadProgressDom.value = uploadedHashs.length * SLICE_SIZE
+        uploadBtnDom.disabled = true
+
+        const restHashs = data.chunkHashs.filter(chunkHash => !uploadedHashs.includes(chunkHash))
+        pauseController = new AbortController()
+        await uploadChunks({
+            hashToChunkMap,
+            chunkHashs: restHashs,
+            fileHash,
+            onChunkUploaded: () => uploadProgressDom.value += SLICE_SIZE,
+            signal: pauseController.signal
+        })
+        //当所有切片上传成功之后，通知后端合并
+        await noticeMerge(data.file.name, data.fileHash, SLICE_SIZE)
+
+        continueBtnDom.hidden = true
+        uploadBtnDom.disabled = false
+        alert('上传成功')
+    }
+
+    async function handleFileChange(e) {
+        uploadBtnDom.disabled = true
+        const file = e.target.files[0]
+        const chunkList = createChunk(file, SLICE_SIZE)
         const { fileHash, chunkHashs } = await calculateHash({
-            fileChunkList: data.chunkList,
+            fileChunkList: chunkList,
             onProgress: (percentage) => hashProgressDom.value = percentage,
         })
-        updateData({ fileHash, chunkHashs })
+        const hashToChunkMap = new Map()
+        chunkList.forEach((chunk, index) => {
+            hashToChunkMap.set(chunkHashs[index], {
+                chunk,
+                index
+            })
+        })
+        updateData({ fileHash, chunkHashs, file, chunkList, hashToChunkMap })
         uploadBtnDom.disabled = false
     }
 
     async function handleClickUpload() {
-        // 通知后端去做切片合并
-        async function uploadFile({ chunkList, onChunkUploaded }) {
-            const requestList = chunkList.map(({ file }, index) => ({
-                file,
-                chunkName: `${data.chunkHashs[index]}-${index}`,
-                fileHash: data.fileHash,
-                index
-            }))
-                .map(({ file, fileHash, index, chunkName }) => {
-                    const formData = new FormData() // 创建表单类型数据
-                    formData.append('file', file)//该文件
-                    formData.append('fileHash', fileHash)//文件名
-                    formData.append('chunkName', chunkName)//切片名
-                    return { formData, index }
-                })
-                .map(({ formData, index }) => {
-                    return new Promise(async resolve => {
-                        await uploadData(formData, pauseController.signal)
-                        onChunkUploaded?.()
-                        resolve()
-                    })
-                })
-            await Promise.all(requestList)//保证所有的切片都已经传输完毕
-        }
-
-        const shouldUpload = await getShouldUpload(data.file.name, data.fileHash)
+        const { file, fileHash, chunkHashs, hashToChunkMap } = data
+        uploadProgressDom.max = file.size
+        const shouldUpload = await getShouldUpload(file.name, fileHash)
         if (!shouldUpload) {
             uploadProgressDom.value = uploadProgressDom.max = 100
             alert('妙传成功')
@@ -124,9 +140,16 @@
         }
         await setDataInDB(data)
         //发请求，调用函数
-        await uploadFile({
-            chunkList: data.chunkList,
-            onChunkUploaded: () => uploadProgressDom.value += SLICE_SIZE,
+        pauseController = new AbortController()
+        await uploadChunks({
+            hashToChunkMap,
+            chunkHashs,
+            fileHash,
+            onChunkUploaded: (chunkHash) => {
+                uploadProgressDom.value += SLICE_SIZE,
+                updateData({ uploadedHashs: [...data.uploadedHashs, chunkHash] })
+            },
+            signal: pauseController.signal
         })
 
         //当所有切片上传成功之后，通知后端合并
@@ -138,15 +161,16 @@
     function handlePause() {
         continueBtnDom.hidden = false
         pauseController.abort()
-        pauseController = new AbortController() // reset pauseController
     }
 
     function handleReset() {
         updateData({
-            file: {},
-            chunkList: [],
+            file: {}, // 上传文件
+            chunkList: [], // 切片列表
             chunkHashs: [],
-            fileHash: ''
+            fileHash: '',
+            hashToChunkMap: {},
+            uploadedHashs: []
         })
         inputDom.value = ''
         hashProgressDom.value = 0

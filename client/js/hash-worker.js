@@ -9,7 +9,7 @@ self.onmessage = async function calculateHash (e) {
     const calHashWith = fileChunk => {
         return new Promise(resolve => {
             const reader = new FileReader();
-            reader.readAsArrayBuffer(fileChunk.file);
+            reader.readAsArrayBuffer(fileChunk);
             reader.onload = e => {
                 fileSpark.append(e.target.result);
                 percentage += 100 / fileChunkList.length;

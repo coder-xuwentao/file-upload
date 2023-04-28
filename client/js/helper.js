@@ -24,9 +24,7 @@ export function createChunk(file, sliceSize) {
     const chunkList = []
     let cur = 0
     while (cur < file.size) {
-        chunkList.push({
-            file: file.slice(cur, cur + sliceSize)
-        })
+        chunkList.push(file.slice(cur, cur + sliceSize))
         cur += sliceSize
     }
     return chunkList
@@ -61,12 +59,12 @@ export function getIndexedDBManagerForFileUpload() {
         })
     }
     return {
-        async setDataInDB(data) {
+        async setDataInDB(data1) {
             const dataBase = await getDataBase()
             return new Promise(resolve => {
                 const request = dataBase.transaction(STORE_NAME, 'readwrite')
                     .objectStore(STORE_NAME)
-                    .put({...data, [UNIQ_KEY]: UNIQ_VALUE})
+                    .put({...data1, [UNIQ_KEY]: UNIQ_VALUE})
                 request.onsuccess = resolve('success')
             })
         },
