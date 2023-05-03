@@ -3,9 +3,11 @@ const http = require('http')
 const multiparty = require('multiparty')// 中间件，处理FormData对象的中间件
 const path = require('path')
 const fse = require('fs-extra')//文件处理模块
+const JSZip = require('jszip')
 
 const server = http.createServer()
 const UPLOAD_DIR = path.resolve(__dirname, '.', 'chunks') // 读取根目录，创建一个文件夹chunks存放切片
+const UNZIP_DIR = path.resolve(__dirname, '.', 'unzip') // 用于展示解压后的文件
 
 server.on('request', async (req, res) => {
     // 处理跨域问题，允许所有的请求头和请求源
@@ -81,7 +83,7 @@ server.on('request', async (req, res) => {
 
             // 把切片移动进chunkDir
             await fse.move(file.path, `${chunkDir}/${chunkName}`)
-            await sleep(2000)
+            // await sleep(2000)
             res.end(JSON.stringify({
                 code: 0,
                 message: '切片上传成功',
@@ -99,7 +101,10 @@ server.on('request', async (req, res) => {
         } = data
         const extension = getExtension(fileName)
         const destinationPath = path.resolve(UPLOAD_DIR, `${fileHash}${extension}`)//获取切片路径
-        await mergeFileChunk({ destinationPath, fileHash, sliceSize })
+        const chunkDir = getChunkDir(fileHash)
+        await mergeFileChunk({ destinationPath, fileHash, sliceSize, chunkDir })
+        await unZip(destinationPath, fileName)
+        fse.rmdirSync(chunkDir)
         res.end(JSON.stringify({
             code: 0,
             message: '文件合并成功'
@@ -107,9 +112,7 @@ server.on('request', async (req, res) => {
     }
 
     // 合并
-    async function mergeFileChunk({ destinationPath, fileHash, sliceSize }) {
-        const chunkDir = getChunkDir(fileHash)
-
+    async function mergeFileChunk({ destinationPath, sliceSize, chunkDir }) {
         let chunkPaths = await fse.readdir(chunkDir)
         chunkPaths.sort((a, b) => a.split('-')[1] - b.split('-')[1])
 
@@ -123,7 +126,7 @@ server.on('request', async (req, res) => {
                 })
             )
         })
-        await Promise.all(arr)//保证所有的切片都被读取
+        await Promise.all(arr) //保证所有的切片都被读取
     }
 
     // 将切片转换成流进行合并
@@ -154,7 +157,8 @@ server.on('request', async (req, res) => {
     }
 
     function getExtension(fileName) {
-        return fileName.slice(fileName.lastIndexOf("."), fileName.length)
+        return '.zip'
+        // return fileName.slice(fileName.lastIndexOf("."), fileName.length)
     }
 
     function isExistFile(filePath, fileName = '') {
@@ -167,6 +171,22 @@ server.on('request', async (req, res) => {
 
     function getChunkDir(fileHash) {
         return path.resolve(UPLOAD_DIR, `${fileHash}-chunks`)
+    }
+
+    async function unZip(filePath, fileName) {
+        const jszip = new JSZip()
+        const buffer = await fse.readFile(filePath)
+        await jszip.loadAsync(buffer)
+        const content = await jszip.files[fileName].async('blob')
+
+        const dest = path.resolve(UNZIP_DIR, fileName)
+        if (!fse.existsSync(UNZIP_DIR)) { //文件夹不存在，新建该文件夹
+            await fse.mkdirs(UNZIP_DIR)
+        }
+        // console.log(dest, saveAs)
+        const arrayBuffer = await content.arrayBuffer();
+        const buf = Buffer.from(arrayBuffer)
+        await fse.writeFile(dest, buf);
     }
 })
 

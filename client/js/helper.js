@@ -30,53 +30,16 @@ export function createChunk(file, sliceSize) {
     return chunkList
 }
 
-export function getIndexedDBManagerForFileUpload() {
-    const DATA_BASE_NAME = 'UploadFileDB'
-    const STORE_NAME = 'UploadFile'
-    const UNIQ_KEY = 'key'
-    const UNIQ_VALUE = '1' // 只存一条数据
-
-    let dataBase = null
-    function getDataBase() {
-        if (dataBase) {
-            return dataBase
-        }
-        return new Promise(resolve => {
-            const request = indexedDB.open(DATA_BASE_NAME, Date.now())
-            request.onupgradeneeded = e => {
-                const db = e.target.result
-                const transaction = e.target.transaction
-                if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    db.createObjectStore(STORE_NAME, { keyPath: UNIQ_KEY })
-                }
-                dataBase = db
-                transaction.oncomplete = () => resolve(db)
-            }
-            request.onsuccess = e => {
-                const db = e.target.result
-                resolve(db)
-            }
-        })
-    }
-    return {
-        async setDataInDB(data1) {
-            const dataBase = await getDataBase()
-            return new Promise(resolve => {
-                const request = dataBase.transaction(STORE_NAME, 'readwrite')
-                    .objectStore(STORE_NAME)
-                    .put({...data1, [UNIQ_KEY]: UNIQ_VALUE})
-                request.onsuccess = resolve('success')
-            })
-        },
-        async getDataInDB() {
-            const dataBase = await getDataBase()
-            return new Promise(resolve => {
-                const request = dataBase.transaction(STORE_NAME, 'readwrite')
-                    .objectStore(STORE_NAME)
-                    .get(UNIQ_VALUE)
-                request.onsuccess = () => resolve(request.result)
-            })
-        }
-    }
-
+export async function generateZip(file) {
+    var zip = new JSZip();
+    zip.file(file.name, file, { date: new Date(file.lastModifiedDate) });
+    const content = await zip.generateAsync({
+       type: "blob",
+       compression: "DEFLATE", 
+       compressionOptions: {
+          level: 9
+       }
+    })
+    // saveAs(content, 'temp.zip'); // FileSaver.min.js 此处可测试解压文件
+    return content
 }
