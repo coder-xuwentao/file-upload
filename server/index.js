@@ -176,14 +176,14 @@ server.on('request', async (req, res) => {
     async function unZip(filePath, fileName) {
         const jszip = new JSZip()
         const buffer = await fse.readFile(filePath)
-        await jszip.loadAsync(buffer)
+        await jszip.loadAsync(buffer, { base64: true })
         const content = await jszip.files[fileName].async('blob')
 
         const dest = path.resolve(UNZIP_DIR, fileName)
         if (!fse.existsSync(UNZIP_DIR)) { //文件夹不存在，新建该文件夹
             await fse.mkdirs(UNZIP_DIR)
         }
-        // console.log(dest, saveAs)
+        
         const arrayBuffer = await content.arrayBuffer();
         const buf = Buffer.from(arrayBuffer)
         await fse.writeFile(dest, buf);
