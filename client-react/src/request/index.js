@@ -48,7 +48,8 @@ export function getCanContinue(data) {
     })
 }
 
-export async function uploadChunks({ hashToChunkMap, chunkHashs, fileHash, onChunkUploaded, signal }) {
+export async function uploadChunks({ hashToChunkMap, chunkHashs, fileHash, onOneChunkUploaded, onComplete, signal }) {
+    const uploadedHashs = []
     const requestList = chunkHashs.map((chunkHash) => {
         const formData = new FormData() // 创建表单类型数据
         const { chunk: file, index } = hashToChunkMap.get(chunkHash)
@@ -58,11 +59,17 @@ export async function uploadChunks({ hashToChunkMap, chunkHashs, fileHash, onChu
         return { formData, chunkHash }
     })
         .map(({ formData, chunkHash }) => {
-            return new Promise(async resolve => {
-                await uploadData(formData, signal)
-                onChunkUploaded?.(chunkHash)
+            return new Promise(async (resolve, reject) => {
+                try {
+                    await uploadData(formData, signal)
+                } catch (error) {
+                    reject()
+                    return
+                }
+                onOneChunkUploaded?.(chunkHash)
+                uploadedHashs.push(chunkHash)
                 resolve()
             })
         })
-    await Promise.all(requestList)//保证所有的切片都已经传输完毕
+    await Promise.all(requestList).finally(() => onComplete(uploadedHashs)) //保证所有的切片都已经传输完毕
 }

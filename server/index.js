@@ -1,8 +1,8 @@
 //app.js
 const http = require('http')
-const multiparty = require('multiparty')// 中间件，处理FormData对象的中间件
+const multiparty = require('multiparty')
 const path = require('path')
-const fse = require('fs-extra')//文件处理模块
+const fse = require('fs-extra')
 const JSZip = require('jszip')
 
 const server = http.createServer()
@@ -175,6 +175,7 @@ server.on('request', async (req, res) => {
 
     async function unZip(filePath, fileName) {
         const jszip = new JSZip()
+        await sleep(500) // hack: 偶先 jszip.loadAsync 失败，怀疑是文件没读到
         const buffer = await fse.readFile(filePath)
         await jszip.loadAsync(buffer, { base64: true })
         const content = await jszip.files[fileName].async('blob')

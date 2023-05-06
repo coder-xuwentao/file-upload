@@ -1,6 +1,5 @@
 import JSZip from 'jszip'
 import workerScript from './hash-worker';
-import localforage from 'localforage'
 // import saveAs from 'file-saver'
 
 // 生成文件和chunk的 hash（web-worker）
@@ -48,8 +47,3 @@ export async function generateZip(file) {
     // saveAs(content, 'temp.zip'); // FileSaver库 此处可测试解压文件
     return content
 }
-
-
-export const setDataInDB = localforage.setItem.bind(localStorage, 'file')
-export const getDataInDB = localforage.getItem.bind(localStorage, 'file')
-export const removeDataInDB = localforage.removeItem.bind(localStorage, 'file')
