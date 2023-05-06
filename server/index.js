@@ -103,8 +103,9 @@ server.on('request', async (req, res) => {
         const destinationPath = path.resolve(UPLOAD_DIR, `${fileHash}${extension}`)//获取切片路径
         const chunkDir = getChunkDir(fileHash)
         await mergeFileChunk({ destinationPath, fileHash, sliceSize, chunkDir })
-        await unZip(destinationPath, fileName)
-        fse.rmdirSync(chunkDir)
+        // unZip有时会失败，为了不阻塞，这里异步
+        // 非必要功能，不钻牛角尖
+        unZip(destinationPath, fileName)
         res.end(JSON.stringify({
             code: 0,
             message: '文件合并成功'
@@ -162,7 +163,11 @@ server.on('request', async (req, res) => {
     }
 
     function isExistFile(filePath, fileName = '') {
-        return fse.existsSync(path.resolve(filePath, fileName))
+        try {
+            return fse.existsSync(path.resolve(filePath, fileName))
+        } catch (error) {
+            return false
+        }
     }
 
     function sleep(ms) {
@@ -174,24 +179,27 @@ server.on('request', async (req, res) => {
     }
 
     async function unZip(filePath, fileName) {
-        const jszip = new JSZip()
-        await sleep(500) // hack: 偶先 jszip.loadAsync 失败，怀疑是文件没读到
-        const buffer = await fse.readFile(filePath)
-        await jszip.loadAsync(buffer, { base64: true })
-        const content = await jszip.files[fileName].async('blob')
+        try {
+            const jszip = new JSZip()
+            const buffer = await fse.readFile(filePath)
+            await jszip.loadAsync(buffer, { base64: true })
+            const content = await jszip.files[fileName].async('nodebuffer')
 
-        const dest = path.resolve(UNZIP_DIR, fileName)
-        if (!fse.existsSync(UNZIP_DIR)) { //文件夹不存在，新建该文件夹
-            await fse.mkdirs(UNZIP_DIR)
+            const dest = path.resolve(UNZIP_DIR, fileName)
+            if (!fse.existsSync(UNZIP_DIR)) { //文件夹不存在，新建该文件夹
+                await fse.mkdirs(UNZIP_DIR)
+            }
+
+            const arrayBuffer = await (content.arrayBuffer?.() || content);
+            const buf = Buffer.from(arrayBuffer)
+            await fse.writeFile(dest, buf);
+        } catch (err) {
+            console.warn(err)
         }
-        
-        const arrayBuffer = await content.arrayBuffer();
-        const buf = Buffer.from(arrayBuffer)
-        await fse.writeFile(dest, buf);
     }
 })
 
 
-server.listen(3000, () => {
+server.listen(5001, () => {
     console.log('服务已启动');
 })

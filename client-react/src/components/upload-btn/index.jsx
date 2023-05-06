@@ -1,33 +1,21 @@
-import { noticeMerge, getShouldUpload, uploadChunks } from '../../request/index.js'
-import { setDataInDB } from '../../helper/indexedDB.js'
-import { SLICE_SIZE } from '../../const/index.js'
+import { uploadChunks } from '../../helper'
 
 const UploadBtn = (props) => {
     const handleClickUpload = async () => {
-        const { controllerRef, data, updateData, setUploadProgress } = props
-        const { file, fileHash, chunkHashs, hashToChunkMap } = data
-        const shouldUpload = await getShouldUpload(file.name, fileHash)
-        if (!shouldUpload) {
-            alert('秒传成功')
-            return
-        }
-        await setDataInDB(data)
+        const { controllerRef, dataRef, setProgressValue } = props
+        const { fileName, fileHash, chunkHashs, hashToChunkMap } = dataRef.current
         
         await uploadChunks({
+            fileName,
             hashToChunkMap,
             chunkHashs,
             fileHash,
-            signal: controllerRef.current.signal,
-            onOneChunkUploaded: () => setUploadProgress((progress) => {
-                console.log(SLICE_SIZE + progress)
-                return SLICE_SIZE + progress
-            }),
-            onComplete: (uploadedHashs) => updateData({ ...data.uploadedHashs ,uploadedHashs }),
+            controllerRef,
+            onOneChunkUploaded: () => setProgressValue(value => value + 1),
+            onQuickUploaded: () => {
+                setProgressValue(chunkHashs.length)
+            },
         })
-        
-        //当所有切片上传成功之后，通知后端合并
-        await noticeMerge(data.file.name, data.fileHash, SLICE_SIZE)
-        alert('上传成功')
     }
 
     return (

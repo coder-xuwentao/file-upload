@@ -1,52 +1,63 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { UploadBtn, SelectFileBtn, PauseBtn, ContinueBtn, UploadProgressBar } from './components'
+import { UploadBtn, SelectFileBtn, PauseBtn, ContinueBtn, ProgressBar } from './components'
 import { initDataFromDB } from './helper/indexedDB'
 
 const UploadFile = () => {
-    const [data, setData] = useState({
-        file: {},
-        chunkList: [],
+    const [fileName, setFileName] = useState('')
+    const [progressValue, setProgressValue] = useState(0)
+    const [progressMax, setProgressMax] = useState(0)
+    const [isMakingChunk, setIsMakingChunk] = useState(false)
+
+    const dataRef = useRef({
+        fileName: {},
         chunkHashs: [],
         fileHash: '',
         hashToChunkMap: {},
-        uploadedHashs: []
     })
-    window.data = data // 方便调试
     const updateData = (newData) => {
-        setData({ ...data, ...newData })
+        if (newData.chunkHashs) {
+            setProgressMax(newData.chunkHashs.length)
+        }
+        if (newData.fileName) {
+            setFileName(newData.fileName)
+        }
+        dataRef.current = { ...dataRef.current, ...newData }
     }
 
-    const [uploadProgress, setUploadProgress] = useState(0)
     const pauseControllerRef = useRef(new AbortController())
     const continueRef = useRef(null)
 
     useEffect(() => {
         initDataFromDB({
             onLoadData: updateData,
-            onConfirmToContinue: () => continueRef.current.click()
+            controllerRef: pauseControllerRef,
+            setProgressValue
         })
     }, [])
 
     return (
         <div className="UploadFile">
-            <SelectFileBtn updateData={updateData} />
-            {data.file?.name && <div>已缓存文件：{data.file.name}，可点击上传</div>}
-            <UploadBtn
-                controllerRef={pauseControllerRef}
-                data={data}
-                updateData={updateData}
-                setUploadProgress={setUploadProgress}
-            />
-            <PauseBtn controllerRef={pauseControllerRef} />
-            <ContinueBtn
-                domRef={continueRef}
-                data={data}
-                controllerRef={pauseControllerRef}
-                updateData={updateData}
-                setUploadProgress={setUploadProgress}
-            />
-            <UploadProgressBar max={data.file?.size || 0} value={uploadProgress} />
+            <SelectFileBtn updateData={updateData} onMakingChunk={setIsMakingChunk} />
+
+            {!isMakingChunk && fileName.length > 0 && <>
+                <div>已缓存文件：{fileName}，可点击上传</div>
+                <UploadBtn
+                    controllerRef={pauseControllerRef}
+                    dataRef={dataRef}
+                    updateData={updateData}
+                    setProgressValue={setProgressValue}
+                />
+                <ProgressBar max={progressMax} value={progressValue} label={'上传进度条：'} />
+                <PauseBtn controllerRef={pauseControllerRef} />
+                <ContinueBtn
+                    domRef={continueRef}
+                    dataRef={dataRef}
+                    controllerRef={pauseControllerRef}
+                    updateData={updateData}
+                    setProgressValue={setProgressValue}
+                />
+            </>}
         </div>
     );
 }

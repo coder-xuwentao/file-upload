@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const axiosRequest = axios.create({
-    baseURL: 'http://localhost:3000/',
+    baseURL: 'http://localhost:5001/',
     timeout: 60000,
     headers: 'Content-Type:application/x-www-form-urlencoded',
 });
@@ -10,7 +10,7 @@ const axiosRequest = axios.create({
 export function noticeMerge(fileName, fileHash, sliceSize) {
     return axiosRequest({
         method: 'post',
-        url: 'upload/merge',//后端合并请求
+        url: 'upload/merge',
         data: JSON.stringify({
             sliceSize,
             fileName,
@@ -19,10 +19,11 @@ export function noticeMerge(fileName, fileHash, sliceSize) {
     })
 }
 
+// 是否需要上传，如果不需要了，就是秒传
 export async function getShouldUpload(fileName, fileHash) {
     const res = await axiosRequest({
         method: 'post',
-        url: 'upload/verify', //请求接口，要与后端一一一对应
+        url: 'upload/verify',
         data: JSON.stringify({
             fileName,
             fileHash,
@@ -34,42 +35,17 @@ export async function getShouldUpload(fileName, fileHash) {
 export function uploadData(formData, signal) {
     return axiosRequest({
         method: 'post',
-        url: 'upload',//请求接口，要与后端一一一对应
+        url: 'upload',
         data: formData,
         signal,
     })
 }
 
-export function getCanContinue(data) {
-    return axiosRequest({
+export async function getCanContinue(data) {
+    const result = await axiosRequest({
         method: 'post',
-        url: 'upload/can_continue',//请求接口，要与后端一一一对应
+        url: 'upload/can_continue',
         data: JSON.stringify(data),
     })
-}
-
-export async function uploadChunks({ hashToChunkMap, chunkHashs, fileHash, onOneChunkUploaded, onComplete, signal }) {
-    const uploadedHashs = []
-    const requestList = chunkHashs.map((chunkHash) => {
-        const formData = new FormData() // 创建表单类型数据
-        const { chunk: file, index } = hashToChunkMap.get(chunkHash)
-        formData.append('file', file) //该文件
-        formData.append('fileHash', fileHash) //文件hash
-        formData.append('chunkName', `${chunkHash}-${index}`) //切片名
-        return { formData, chunkHash }
-    })
-        .map(({ formData, chunkHash }) => {
-            return new Promise(async (resolve, reject) => {
-                try {
-                    await uploadData(formData, signal)
-                } catch (error) {
-                    reject()
-                    return
-                }
-                onOneChunkUploaded?.(chunkHash)
-                uploadedHashs.push(chunkHash)
-                resolve()
-            })
-        })
-    await Promise.all(requestList).finally(() => onComplete(uploadedHashs)) //保证所有的切片都已经传输完毕
+    return result.data
 }

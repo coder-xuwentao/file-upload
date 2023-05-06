@@ -1,14 +1,21 @@
 import { useState } from 'react';
 import { calculateHash, createChunk, generateZip } from '../../helper'
+import { setDataInDB } from '../../helper/indexedDB.js'
 import { SLICE_SIZE } from '../../const'
+import { ProgressBar } from '../index'
 
 const SelectFileBtn = (props) => {
-    const { updateData } = props;
+    const { updateData, onMakingChunk } = props;
     const [progressValue, setProgressValue] = useState('0')
     const [ziping, setZiping] = useState(false)
 
     const handleChange = async (e) => {
+        onMakingChunk(true)
         const file = e.target.files[0]
+        if (!file) {
+            console.log('没选择文件')
+            return
+        }
         setZiping(true)
         const fileZip = await generateZip(file)
         setZiping(false)
@@ -26,19 +33,18 @@ const SelectFileBtn = (props) => {
                 index
             })
         })
-        updateData({ fileHash, chunkHashs, file, chunkList, hashToChunkMap })
+        const data = { fileHash, chunkHashs, fileName: file.name, chunkList, hashToChunkMap }
+        updateData(data)
+        await setDataInDB(data)
+        onMakingChunk(false)
     }
     return (
         <div className='select-file-btn' style={{ paddingBottom: '1rem' }}>
             <input type="file" onChange={handleChange} />
             {ziping
-                ? <div className='select-file-btn-zip-tip'>解压中ing</div>
-                : <div>
-                    <label htmlFor="hash-progress-bar">制作hash进度条：</label>
-                    <progress className="hash-progress-bar" value={progressValue} max="100"></progress>
-                </div>
+                ? <div className='select-file-btn-zip-tip'>压缩中ing</div>
+                : <ProgressBar label={'制作hash进度条：'} value={progressValue} max={100} />
             }
-
         </div>
     )
 }

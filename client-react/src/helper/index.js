@@ -1,6 +1,8 @@
 import JSZip from 'jszip'
 import workerScript from './hash-worker';
-// import saveAs from 'file-saver'
+import { getShouldUpload, uploadData, noticeMerge } from '../request'
+import { SLICE_SIZE } from '../const'
+
 
 // 生成文件和chunk的 hash（web-worker）
 export function calculateHash({ fileChunkList, onProgress }) {
@@ -46,4 +48,45 @@ export async function generateZip(file) {
     })
     // saveAs(content, 'temp.zip'); // FileSaver库 此处可测试解压文件
     return content
+}
+
+
+export async function uploadChunks({ fileName, hashToChunkMap, chunkHashs, fileHash, controllerRef,
+    onOneChunkUploaded, onQuickUploaded
+}) {
+    // 是否需要上传，不需要就是妙传了。
+    const canQuickUploaded = !(await getShouldUpload(fileName, fileHash))
+    if (canQuickUploaded) {
+        onQuickUploaded?.()
+        alert('秒传成功')
+        return
+    }
+
+    const requestList = chunkHashs.map((chunkHash) => {
+        const formData = new FormData()
+        const { chunk: file, index } = hashToChunkMap.get(chunkHash)
+        formData.append('file', file)
+        formData.append('fileHash', fileHash)
+        formData.append('chunkName', `${chunkHash}-${index}`)
+        return { formData, chunkHash }
+    })
+        .map(({ formData, chunkHash }) => {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    await uploadData(formData, controllerRef.current.signal)
+                } catch (error) {
+                    console.warn('uploadChunk fail', error)
+                    controllerRef.current = new AbortController()
+                    reject()
+                    return
+                }
+                onOneChunkUploaded?.(chunkHash)
+                resolve()
+            })
+        })
+    await Promise.all(requestList) //保证所有的切片都已经传输完毕
+    
+    //当所有切片上传成功之后，通知后端合并
+    await noticeMerge(fileName, fileHash, SLICE_SIZE)
+    alert('上传成功')
 }
